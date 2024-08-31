@@ -106,21 +106,36 @@ jobs:
 
       - name: Download Armbian from Releases
         id: down
+        working-directory: /builder
         if: ${{ steps.init.outputs.status }} == 'success' && !cancelled()
         run: |
           armbian_buildpath="build/output/images"
           [[ -d "${armbian_buildpath}" ]] || mkdir -p "${armbian_buildpath}"
-          down_repo="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases"
-          down_path="Armbian_Aml_${{ inputs.set_release }}.*/Armbian_.*-trunk_.*.img.gz"
+          ln -sf /builder/build ${GITHUB_WORKSPACE}/build
+          ln -sf /builder/build /home/runner/work/_actions/ophub/amlogic-s9xxx-armbian/main/build
 
-          # down_filename: Armbian_Aml_jammy_11.18.2336/Armbian_22.11.0-trunk_5.10.70.img.gz
-          down_filename="$(curl -s "${down_repo}" | grep -oE "${down_path}" | head -n 1)"
-          down_file="https://github.com/${GITHUB_REPOSITORY}/releases/download/${down_filename}"
-          [[ -z "${down_file}" ]] && echo "Invalid download file." && exit 1
-          wget -q -P "${armbian_buildpath}" "${down_file}" && sync
+          latest_version="$(curl -s \
+                              -H "Accept: application/vnd.github+json" \
+                              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                              https://api.github.com/repos/${GITHUB_REPOSITORY}/releases?per_page=100 |
+                              jq '.[]' |
+                              jq -s --arg RTK "Armbian_${{ inputs.set_release }}_" '.[] | select(.tag_name | contains($RTK))' |
+                              jq -s '.[].assets[] | {data:.updated_at, url:.browser_download_url}' |
+                              jq -s --arg BOARD "-trunk_" '.[] | select((.url | contains($BOARD)) and (.url | endswith(".img.gz")))' |
+                              jq -s 'sort_by(.data)|reverse[]' |
+                              jq -s '.[0]' -c
+                          )"
+
+          [[ "${latest_version}" == "null" ]] && echo "Invalid Armbian image download address." && exit 1
+          latest_updated_at="$(echo ${latest_version} | jq -r '.data')"
+          latest_url="$(echo ${latest_version} | jq -r '.url')"
+
+          armbian_filename="${latest_url##*/}"
+          curl -fsSL "${latest_url}" -o "${armbian_buildpath}/${armbian_filename}"
+          [[ "${?}" -ne "0" ]] && echo "Invalid Armbian image download address." && exit 1
           cd "${armbian_buildpath}" && gzip -df *.img.gz && sync
 
-          echo "ARMBIAN_RELEASE=${{ inputs.set_release }}" >> ${GITHUB_ENV}
+          echo "build_tag=Armbian_${{ inputs.set_release }}_${{ inputs.armbian_storage }}_$(date +"%Y.%m")" >> ${GITHUB_OUTPUT}
           echo "status=success" >> ${GITHUB_OUTPUT}
 
       - name: Rebuild Armbian [ ${{ env.ARMBIAN_RELEASE }} ]
