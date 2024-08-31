@@ -109,7 +109,8 @@ jobs:
         id: down
         if: ${{ steps.init.outputs.status }} == 'success' && !cancelled()
         run: |
-          git clone --depth 1 https://github.com/armbian/build.git
+          # git clone --depth 1 https://github.com/armbian/build.git
+          git clone -b v22.05  https://github.com/armbian/build.git
           echo "status=success" >> ${GITHUB_OUTPUT}
 
       - name: Compile Armbian [ ${{ env.ARMBIAN_RELEASE }} ]
